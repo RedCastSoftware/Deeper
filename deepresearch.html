@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Deep Research Agent - Full Web Search + Scrape + Analyze</title>
+<script src="https://js.puter.com/v2/"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 2rem; }
+  textarea { width: 100%; height: 80px; }
+  button { padding: 0.5rem 1rem; margin-top: 0.5rem; }
+  #response { margin-top: 2rem; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>Deep Research Agent</h1>
+<p>Enter your research topic or question:</p>
+<textarea id="query" placeholder="E.g. Quantum computing, climate change, CRISPR technology..."></textarea><br />
+<button id="searchBtn">Start Research</button>
+
+<div id="response"></div>
+
+<script>
+  // === CONFIG - Replace these with your keys ===
+  const BING_API_KEY = 'YOUR_BING_SEARCH_API_KEY';
+  const FIRECRAWL_API_KEY = 'fc-999bd998d54a43498eb3559311ad94da';
+
+  async function webSearch(query) {
+    // Call Bing Web Search API to get top URLs
+    const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=5`;
+    const res = await fetch(url, {
+      headers: { 'Ocp-Apim-Subscription-Key': BING_API_KEY }
+    });
+    if (!res.ok) throw new Error('Web search API error: ' + res.statusText);
+    const data = await res.json();
+    // Extract URLs from search results
+    const urls = (data.webPages?.value || []).map(item => item.url);
+    return urls;
+  }
+
+  async function scrapeUrl(url) {
+    // Scrape URL content with Firecrawl API
+    const res = await fetch('https://api.firecrawl.dev/scrape', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`
+      },
+      body: JSON.stringify({ url })
+    });
+    if (!res.ok) throw new Error('Firecrawl scrape error: ' + res.statusText);
+    const data = await res.json();
+    return data.content || '';
+  }
+
+  async function performResearch() {
+    const query = document.getElementById('query').value.trim();
+    const responseDiv = document.getElementById('response');
+    responseDiv.textContent = '';
+    if (!query) {
+      alert('Please enter a research topic or question.');
+      return;
+    }
+    responseDiv.textContent = 'Performing web search...';
+
+    try {
+      // Step 1: Search the web for URLs
+      const urls = await webSearch(query);
+      if (urls.length === 0) {
+        responseDiv.textContent = 'No search results found.';
+        return;
+      }
+      responseDiv.textContent = `Found ${urls.length} URLs. Scraping content...\n\n`;
+
+      // Step 2: Scrape each URL
+      let combinedContent = '';
+      for (const url of urls) {
+        responseDiv.textContent += `Scraping: ${url}\n`;
+        const content = await scrapeUrl(url);
+        combinedContent += content + '\n\n';
+      }
+
+      if (!combinedContent.trim()) {
+        responseDiv.textContent += '\nNo content scraped from URLs.';
+        return;
+      }
+
+      responseDiv.textContent += '\nAnalyzing scraped content with AI...';
+
+      // Step 3: Analyze combined content with Puter.js DeepSeek
+      const analysis = await puter.ai.chat(`Summarize and explain this research content in detail:\n\n${combinedContent}`, {
+        model: 'deepseek-chat'
+      });
+
+      responseDiv.innerHTML = `<h2>Research Summary</h2><p>${analysis.message.content}</p>`;
+
+    } catch (err) {
+      responseDiv.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
+    }
+  }
+
+  document.getElementById('searchBtn').addEventListener('click', performResearch);
+</script>
+
+</body>
+</html> where to put firecrawl 
