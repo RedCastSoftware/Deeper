@@ -3,105 +3,105 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Deep Research Agent - Full Web Search + Scrape + Analyze</title>
+<title>Deep Research Assistant - Multi-site</title>
 <script src="https://js.puter.com/v2/"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mendable/firecrawl-js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 2rem; }
-  textarea { width: 100%; height: 80px; }
-  button { padding: 0.5rem 1rem; margin-top: 0.5rem; }
-  #response { margin-top: 2rem; white-space: pre-wrap; }
+  #output { white-space: pre-wrap; margin-top: 1rem; max-height: 600px; overflow-y: auto; }
 </style>
 </head>
 <body>
 
-<h1>Deep Research Agent</h1>
-<p>Enter your research topic or question:</p>
-<textarea id="query" placeholder="E.g. Quantum computing, climate change, CRISPR technology..."></textarea><br />
-<button id="searchBtn">Start Research</button>
+<h1>Deep Research Assistant</h1>
 
-<div id="response"></div>
+<input id="topicInput" type="text" placeholder="Enter research topic" style="width: 60%;" />
+<button id="searchBtn">Search & Research</button>
+
+<div id="output"></div>
 
 <script>
-  // === CONFIG - Replace these with your keys ===
-  const BING_API_KEY = 'YOUR_BING_SEARCH_API_KEY';
-  const FIRECRAWL_API_KEY = 'fc-999bd998d54a43498eb3559311ad94da';
+  const firecrawlApp = new FirecrawlApp({ apiKey: "fc-999bd998d54a43498eb3559311ad94da" });
 
-  async function webSearch(query) {
-    // Call Bing Web Search API to get top URLs
-    const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=5`;
-    const res = await fetch(url, {
-      headers: { 'Ocp-Apim-Subscription-Key': BING_API_KEY }
-    });
-    if (!res.ok) throw new Error('Web search API error: ' + res.statusText);
+  // DuckDuckGo JSON search API (unofficial, limited)
+  async function ddgSearch(query) {
+    const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    // Using a CORS proxy because duckduckgo.com/html does not allow CORS
+    const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(url);
+    const res = await fetch(proxy);
+    if (!res.ok) throw new Error("Failed to fetch search results");
     const data = await res.json();
-    // Extract URLs from search results
-    const urls = (data.webPages?.value || []).map(item => item.url);
-    return urls;
+    // Extract links from the HTML using DOMParser
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(data.contents, "text/html");
+    const results = Array.from(doc.querySelectorAll(".result__a"))
+      .map(a => a.href)
+      .filter(href => href.startsWith("http"));
+    return results.slice(0, 5); // limit to top 5 results
   }
 
-  async function scrapeUrl(url) {
-    // Scrape URL content with Firecrawl API
-    const res = await fetch('https://api.firecrawl.dev/scrape', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`
-      },
-      body: JSON.stringify({ url })
-    });
-    if (!res.ok) throw new Error('Firecrawl scrape error: ' + res.statusText);
-    const data = await res.json();
-    return data.content || '';
-  }
-
-  async function performResearch() {
-    const query = document.getElementById('query').value.trim();
-    const responseDiv = document.getElementById('response');
-    responseDiv.textContent = '';
-    if (!query) {
-      alert('Please enter a research topic or question.');
-      return;
-    }
-    responseDiv.textContent = 'Performing web search...';
-
+  async function deepResearch(topic) {
+    const outputEl = document.getElementById("output");
+    outputEl.textContent = "Searching web for relevant websites...";
     try {
-      // Step 1: Search the web for URLs
-      const urls = await webSearch(query);
+      // 1. Search DuckDuckGo for URLs
+      const urls = await ddgSearch(topic);
       if (urls.length === 0) {
-        responseDiv.textContent = 'No search results found.';
+        outputEl.textContent = "No results found for your topic.";
         return;
       }
-      responseDiv.textContent = `Found ${urls.length} URLs. Scraping content...\n\n`;
+      outputEl.textContent = `Found ${urls.length} URLs. Crawling pages...`;
 
-      // Step 2: Scrape each URL
-      let combinedContent = '';
+      // 2. Crawl each URL with Firecrawl (limit 3 pages per URL)
+      let allContent = "";
       for (const url of urls) {
-        responseDiv.textContent += `Scraping: ${url}\n`;
-        const content = await scrapeUrl(url);
-        combinedContent += content + '\n\n';
+        try {
+          const crawlRes = await firecrawlApp.crawlUrl(url, {
+            limit: 3,
+            scrapeOptions: { formats: ["markdown", "text"] },
+          });
+          if (crawlRes.success) {
+            const pageTexts = crawlRes.data.map(page => page.content).join("\n\n---\n\n");
+            allContent += `\n\n--- Content from: ${url} ---\n\n` + pageTexts;
+          } else {
+            console.warn(`Failed to crawl ${url}: ${crawlRes.error}`);
+          }
+        } catch (e) {
+          console.warn(`Error crawling ${url}:`, e);
+        }
       }
 
-      if (!combinedContent.trim()) {
-        responseDiv.textContent += '\nNo content scraped from URLs.';
+      if (!allContent) {
+        outputEl.textContent = "No content could be crawled from search results.";
         return;
       }
 
-      responseDiv.textContent += '\nAnalyzing scraped content with AI...';
+      outputEl.textContent = "Generating detailed AI research summary...";
 
-      // Step 3: Analyze combined content with Puter.js DeepSeek
-      const analysis = await puter.ai.chat(`Summarize and explain this research content in detail:\n\n${combinedContent}`, {
-        model: 'deepseek-chat'
-      });
+      // 3. Use Puter.js AI to answer with all collected content
+      const aiResponse = await puter.ai.chat([
+        { role: "system", content: "You are an expert research assistant." },
+        { role: "user", content: `Based on the following combined content from multiple websites, provide a detailed and coherent answer on the topic: ${topic}\n\n${allContent}` }
+      ], { model: "gpt-4.1-nano" });
 
-      responseDiv.innerHTML = `<h2>Research Summary</h2><p>${analysis.message.content}</p>`;
+      outputEl.textContent = aiResponse;
 
     } catch (err) {
-      responseDiv.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
+      console.error(err);
+      outputEl.textContent = "Error: " + err.message;
     }
   }
 
-  document.getElementById('searchBtn').addEventListener('click', performResearch);
+  document.getElementById("searchBtn").addEventListener("click", () => {
+    const topic = document.getElementById("topicInput").value.trim();
+    if (!topic) {
+      alert("Please enter a research topic.");
+      return;
+    }
+    deepResearch(topic);
+  });
 </script>
 
 </body>
-</html> where to put firecrawl 
+</html>
+
